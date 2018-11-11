@@ -11,11 +11,15 @@
 |
 */
 
-// Route::get('/', function () {
-//     return view('welcome');
+Route::get('/', 'HomeController@index');
+Route::get('/index', 'HomeController@index');
+Route::get('/about', 'HomeController@about');
+Route::get('/contact', 'HomeController@contact');
+Route::get('/product', 'HomeController@product');
+Route::get('/shoping-cart', 'HomeController@shopingcart');
+Route::get('/blog', 'HomeController@blog');
+Route::get('/blog-detail', 'HomeController@blogdetail');
+Route::get('/product-detail', 'HomeController@productdetail');
+// Route::get('/test', function () {
+//     return view('main');
 // });
-Route::get('/home', function() {
-	return view('index');
-});
-// Route::get('/home', 'HomeController@index') -> session_name()('home');
-// Route::get('/about', 'HomeController@about') -> name('about');

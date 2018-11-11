@@ -3,9 +3,8 @@
 namespace Illuminate\Console\Scheduling;
 
 use Closure;
+use Carbon\Carbon;
 use Cron\CronExpression;
-use Illuminate\Support\Arr;
-use Illuminate\Support\Carbon;
 use GuzzleHttp\Client as HttpClient;
 use Illuminate\Contracts\Mail\Mailer;
 use Symfony\Component\Process\Process;
@@ -28,7 +27,7 @@ class Event
      *
      * @var string
      */
-    public $expression = '* * * * *';
+    public $expression = '* * * * * *';
 
     /**
      * The timezone the date should be evaluated on.
@@ -64,13 +63,6 @@ class Event
      * @var bool
      */
     public $withoutOverlapping = false;
-
-    /**
-     * Indicates if the command should only be allowed to run on one server for each cron expression.
-     *
-     * @var bool
-     */
-    public $onOneServer = false;
 
     /**
      * The amount of time the mutex should be valid.
@@ -136,20 +128,20 @@ class Event
     public $description;
 
     /**
-     * The event mutex implementation.
+     * The mutex implementation.
      *
-     * @var \Illuminate\Console\Scheduling\EventMutex
+     * @var \Illuminate\Console\Scheduling\Mutex
      */
     public $mutex;
 
     /**
      * Create a new event instance.
      *
-     * @param  \Illuminate\Console\Scheduling\EventMutex  $mutex
+     * @param  \Illuminate\Console\Scheduling\Mutex  $mutex
      * @param  string  $command
      * @return void
      */
-    public function __construct(EventMutex $mutex, $command)
+    public function __construct(Mutex $mutex, $command)
     {
         $this->mutex = $mutex;
         $this->command = $command;
@@ -163,7 +155,7 @@ class Event
      */
     public function getDefaultOutput()
     {
-        return (DIRECTORY_SEPARATOR === '\\') ? 'NUL' : '/dev/null';
+        return (DIRECTORY_SEPARATOR == '\\') ? 'NUL' : '/dev/null';
     }
 
     /**
@@ -339,18 +331,6 @@ class Event
     }
 
     /**
-     * Ensure that the output is stored on disk in a log file.
-     *
-     * @return $this
-     */
-    public function storeOutput()
-    {
-        $this->ensureOutputIsBeingCaptured();
-
-        return $this;
-    }
-
-    /**
      * Send the output of the command to a given location.
      *
      * @param  string  $location
@@ -390,7 +370,7 @@ class Event
     {
         $this->ensureOutputIsBeingCapturedForEmail();
 
-        $addresses = Arr::wrap($addresses);
+        $addresses = is_array($addresses) ? $addresses : [$addresses];
 
         return $this->then(function (Mailer $mailer) use ($addresses, $onlyIfOutputExists) {
             $this->emailOutput($mailer, $addresses, $onlyIfOutputExists);
@@ -414,20 +394,8 @@ class Event
      * Ensure that output is being captured for email.
      *
      * @return void
-     *
-     * @deprecated See ensureOutputIsBeingCaptured.
      */
     protected function ensureOutputIsBeingCapturedForEmail()
-    {
-        $this->ensureOutputIsBeingCaptured();
-    }
-
-    /**
-     * Ensure that the command output is being captured.
-     *
-     * @return void
-     */
-    protected function ensureOutputIsBeingCaptured()
     {
         if (is_null($this->output) || $this->output == $this->getDefaultOutput()) {
             $this->sendOutputTo(storage_path('logs/schedule-'.sha1($this->mutexName()).'.log'));
@@ -466,7 +434,7 @@ class Event
             return $this->description;
         }
 
-        return "Scheduled Job Output For [{$this->command}]";
+        return 'Scheduled Job Output';
     }
 
     /**
@@ -483,18 +451,6 @@ class Event
     }
 
     /**
-     * Register a callback to ping a given URL before the job runs if the given condition is true.
-     *
-     * @param  bool  $value
-     * @param  string  $url
-     * @return $this
-     */
-    public function pingBeforeIf($value, $url)
-    {
-        return $value ? $this->pingBefore($url) : $this;
-    }
-
-    /**
      * Register a callback to ping a given URL after the job runs.
      *
      * @param  string  $url
@@ -505,18 +461,6 @@ class Event
         return $this->then(function () use ($url) {
             (new HttpClient)->get($url);
         });
-    }
-
-    /**
-     * Register a callback to ping a given URL after the job runs if the given condition is true.
-     *
-     * @param  bool  $value
-     * @param  string  $url
-     * @return $this
-     */
-    public function thenPingIf($value, $url)
-    {
-        return $value ? $this->thenPing($url) : $this;
     }
 
     /**
@@ -589,13 +533,14 @@ class Event
     }
 
     /**
-     * Allow the event to only run on one server for each cron expression.
+     * Register a callback to further filter the schedule.
      *
+     * @param  \Closure  $callback
      * @return $this
      */
-    public function onOneServer()
+    public function when(Closure $callback)
     {
-        $this->onOneServer = true;
+        $this->filters[] = $callback;
 
         return $this;
     }
@@ -603,29 +548,12 @@ class Event
     /**
      * Register a callback to further filter the schedule.
      *
-     * @param  \Closure|bool  $callback
+     * @param  \Closure  $callback
      * @return $this
      */
-    public function when($callback)
+    public function skip(Closure $callback)
     {
-        $this->filters[] = is_callable($callback) ? $callback : function () use ($callback) {
-            return $callback;
-        };
-
-        return $this;
-    }
-
-    /**
-     * Register a callback to further filter the schedule.
-     *
-     * @param  \Closure|bool  $callback
-     * @return $this
-     */
-    public function skip($callback)
-    {
-        $this->rejects[] = is_callable($callback) ? $callback : function () use ($callback) {
-            return $callback;
-        };
+        $this->rejects[] = $callback;
 
         return $this;
     }
@@ -711,13 +639,13 @@ class Event
      * @param  \DateTime|string  $currentTime
      * @param  int  $nth
      * @param  bool  $allowCurrentDate
-     * @return \Illuminate\Support\Carbon
+     * @return \Carbon\Carbon
      */
     public function nextRunDate($currentTime = 'now', $nth = 0, $allowCurrentDate = false)
     {
-        return Carbon::instance(CronExpression::factory(
+        return Carbon::instance($nextDue = CronExpression::factory(
             $this->getExpression()
-        )->getNextRunDate($currentTime, $nth, $allowCurrentDate, $this->timezone));
+        )->getNextRunDate($currentTime, $nth, $allowCurrentDate));
     }
 
     /**
@@ -731,12 +659,12 @@ class Event
     }
 
     /**
-     * Set the event mutex implementation to be used.
+     * Set the mutex implementation to be used.
      *
-     * @param  \Illuminate\Console\Scheduling\EventMutex  $mutex
+     * @param  \Illuminate\Console\Scheduling\Mutex  $mutex
      * @return $this
      */
-    public function preventOverlapsUsing(EventMutex $mutex)
+    public function preventOverlapsUsing(Mutex $mutex)
     {
         $this->mutex = $mutex;
 

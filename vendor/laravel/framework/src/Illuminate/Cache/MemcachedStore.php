@@ -3,22 +3,12 @@
 namespace Illuminate\Cache;
 
 use Memcached;
+use Carbon\Carbon;
 use ReflectionMethod;
 use Illuminate\Contracts\Cache\Store;
-use Illuminate\Support\InteractsWithTime;
-use Illuminate\Contracts\Cache\LockProvider;
 
-class MemcachedStore extends TaggableStore implements LockProvider, Store
+class MemcachedStore extends TaggableStore implements Store
 {
-    use InteractsWithTime;
-
-    /**
-     * The maximum value that can be specified as an expiration delta.
-     *
-     * @var int
-     */
-    const REALTIME_MAXDELTA_IN_MINUTES = 43200;
-
     /**
      * The Memcached instance.
      *
@@ -110,9 +100,7 @@ class MemcachedStore extends TaggableStore implements LockProvider, Store
      */
     public function put($key, $value, $minutes)
     {
-        $this->memcached->set(
-            $this->prefix.$key, $value, $this->calculateExpiration($minutes)
-        );
+        $this->memcached->set($this->prefix.$key, $value, $this->toTimestamp($minutes));
     }
 
     /**
@@ -130,9 +118,7 @@ class MemcachedStore extends TaggableStore implements LockProvider, Store
             $prefixedValues[$this->prefix.$key] = $value;
         }
 
-        $this->memcached->setMulti(
-            $prefixedValues, $this->calculateExpiration($minutes)
-        );
+        $this->memcached->setMulti($prefixedValues, $this->toTimestamp($minutes));
     }
 
     /**
@@ -145,9 +131,7 @@ class MemcachedStore extends TaggableStore implements LockProvider, Store
      */
     public function add($key, $value, $minutes)
     {
-        return $this->memcached->add(
-            $this->prefix.$key, $value, $this->calculateExpiration($minutes)
-        );
+        return $this->memcached->add($this->prefix.$key, $value, $this->toTimestamp($minutes));
     }
 
     /**
@@ -187,18 +171,6 @@ class MemcachedStore extends TaggableStore implements LockProvider, Store
     }
 
     /**
-     * Get a lock instance.
-     *
-     * @param  string  $name
-     * @param  int  $seconds
-     * @return \Illuminate\Contracts\Cache\Lock
-     */
-    public function lock($name, $seconds = 0)
-    {
-        return new MemcachedLock($this->memcached, $this->prefix.$name, $seconds);
-    }
-
-    /**
      * Remove an item from the cache.
      *
      * @param  string  $key
@@ -220,17 +192,6 @@ class MemcachedStore extends TaggableStore implements LockProvider, Store
     }
 
     /**
-     * Get the expiration time of the key.
-     *
-     * @param  int  $minutes
-     * @return int
-     */
-    protected function calculateExpiration($minutes)
-    {
-        return $this->toTimestamp($minutes);
-    }
-
-    /**
      * Get the UNIX timestamp for the given number of minutes.
      *
      * @param  int  $minutes
@@ -238,7 +199,7 @@ class MemcachedStore extends TaggableStore implements LockProvider, Store
      */
     protected function toTimestamp($minutes)
     {
-        return $minutes > 0 ? $this->availableAt($minutes * 60) : 0;
+        return $minutes > 0 ? Carbon::now()->addSeconds($minutes * 60)->getTimestamp() : 0;
     }
 
     /**
